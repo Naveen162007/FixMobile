@@ -1,4 +1,4 @@
-const API_BASE = 'http://localhost:5000/api';
+const API_BASE = 'https://fixmobile-api.onrender.com/api';
 
 export async function fetchApi(endpoint, options = {}) {
   try {
@@ -9,7 +9,7 @@ export async function fetchApi(endpoint, options = {}) {
       },
       ...options
     });
-    const data = await res.json();
+    const data = await res.json()
     if (!res.ok) {
       throw new Error(data.error || 'Server request failed');
     }
@@ -23,7 +23,7 @@ export async function fetchApi(endpoint, options = {}) {
 export const api = {
   getShopDetails: () => fetchApi('/shop-details'),
   updateShopDetails: (data) => fetchApi('/shop-details', { method: 'PUT', body: JSON.stringify(data) }),
-  
+
   getBrands: () => fetchApi('/brands'),
   getServices: () => fetchApi('/services'),
   getTimeSlots: () => fetchApi('/time-slots'),
