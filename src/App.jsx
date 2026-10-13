@@ -15,8 +15,19 @@ import AdminDashboard from './pages/AdminDashboard';
 import { api } from './utils/api';
 
 export default function App() {
-  const [role, setRole] = useState(null); // 'user', 'admin', or null (shows RoleSelector initial page)
-  const [user, setUser] = useState(null);
+
+  const [role, setRole] = useState(() => {
+    return localStorage.getItem('fixmobile_role') || null;
+  });
+
+  const [user, setUser] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('fixmobile_user')) || null;
+    } catch {
+      return null;
+    }
+  });
+
   const [activeTab, setActiveTab] = useState('home'); // 'home', 'book', 'track', 'ai', 'queries', 'dashboard'
 
   // Backend store states
@@ -75,8 +86,14 @@ export default function App() {
     }
   };
 
+
   const handleAuthSuccess = (authUser, token) => {
     setUser(authUser);
+    localStorage.setItem('fixmobile_user', JSON.stringify(authUser));
+    localStorage.setItem('fixmobile_role', authUser.role === 'admin' ? 'admin' : 'user');
+    if (token) {
+      localStorage.setItem('fixmobile_token', token);
+    }
     setShowAuthModal(false);
     if (authUser.role === 'admin') {
       setRole('admin');
@@ -87,6 +104,10 @@ export default function App() {
 
   const handleLogout = () => {
     setUser(null);
+    localStorage.removeItem('fixmobile_user');
+    localStorage.removeItem('fixmobile_role');
+    localStorage.removeItem('fixmobile_token');
+
     if (role === 'admin') {
       setRole('user');
       setActiveTab('home');
@@ -118,7 +139,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col font-sans selection:bg-brand-500 selection:text-white">
-      
+
       {/* Global Header */}
       <Header
         role={role}
