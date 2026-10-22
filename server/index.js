@@ -1,6 +1,19 @@
 import express from 'express';
 import cors from 'cors';
-import { readDB, writeDB, initDB, getCollection, setCollection, addItem, updateItemById, getItemById, deleteItem } from './db.js';
+import { 
+  readDB, 
+  writeDB, 
+  initDB, 
+  getCollection, 
+  setCollection, 
+  addItem, 
+  updateItemById, 
+  getItemById, 
+  deleteItem,
+  hashPassword,
+  comparePassword,
+  isMongoActive 
+} from './db.js';
 import { initialSeedData } from './seed.js';
 
 const app = express();
@@ -9,17 +22,22 @@ const PORT = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 
-// Ensure DB exists on startup
-initDB(initialSeedData);
-
 // Helper function to check if DB is empty and seed if necessary
-const ensureSeed = () => {
+const ensureSeed = async () => {
   const db = readDB();
   if (!db.shopDetails || !db.brands || db.brands.length === 0) {
-    writeDB(initialSeedData);
+    await writeDB(initialSeedData);
   }
 };
-ensureSeed();
+
+// Health Check API
+app.get('/api/health', (req, res) => {
+  res.json({
+    status: 'ok',
+    storageMode: isMongoActive() ? 'MongoDB Atlas' : 'Local JSON Store',
+    timestamp: new Date().toISOString()
+  });
+});
 
 // -------------------------------------------------------------
 // SHOP DETAILS & PUBLIC INFO
@@ -29,10 +47,10 @@ app.get('/api/shop-details', (req, res) => {
   res.json(db.shopDetails || initialSeedData.shopDetails);
 });
 
-app.put('/api/shop-details', (req, res) => {
+app.put('/api/shop-details', async (req, res) => {
   const db = readDB();
   db.shopDetails = { ...db.shopDetails, ...req.body, updatedAt: new Date().toISOString() };
-  writeDB(db);
+  await writeDB(db);
   res.json({ success: true, shopDetails: db.shopDetails });
 });
 
@@ -59,54 +77,76 @@ app.get('/api/reviews', (req, res) => {
 // -------------------------------------------------------------
 // AUTHENTICATION (User & Admin)
 // -------------------------------------------------------------
-app.post('/api/auth/register', (req, res) => {
+app.post('/api/auth/register', async (req, res) => {
   const { name, email, phone, password } = req.body;
   if (!name || !email || !phone || !password) {
     return res.status(400).json({ error: "All registration fields are required." });
   }
 
+  const normalizedEmail = email.trim().toLowerCase();
   const users = getCollection('users');
-  const existing = users.find(u => u.email.toLowerCase() === email.toLowerCase());
+  const existing = users.find(u => u.email && u.email.toLowerCase() === normalizedEmail);
   if (existing) {
     return res.status(400).json({ error: "An account with this email already exists." });
   }
 
+  // Securely hash password using bcrypt
+  const hashedPassword = await hashPassword(password);
+
   const newUser = {
     id: `usr-${Date.now()}`,
-    name,
-    email: email.toLowerCase(),
-    phone,
-    passwordHash: password, // In production, use bcrypt hash
+    name: name.trim(),
+    email: normalizedEmail,
+    phone: phone.trim(),
+    passwordHash: hashedPassword,
     role: "user",
     address: "",
     createdAt: new Date().toISOString()
   };
 
-  addItem('users', newUser);
+  await addItem('users', newUser);
   const { passwordHash, ...userWithoutPass } = newUser;
   res.json({ success: true, token: `mock-user-token-${newUser.id}`, user: userWithoutPass });
 });
 
-app.post('/api/auth/login', (req, res) => {
+app.post('/api/auth/login', async (req, res) => {
   const { email, password, role } = req.body;
   if (!email || !password) {
     return res.status(400).json({ error: "Email and password are required." });
   }
 
+  const normalizedEmail = email.trim().toLowerCase();
+
   if (role === 'admin') {
     const admins = getCollection('admins');
-    const admin = admins.find(a => a.email.toLowerCase() === email.toLowerCase() && a.passwordHash === password);
-    if (!admin) {
+    const admin = admins.find(a => a.email && a.email.toLowerCase() === normalizedEmail);
+    if (!admin || !(await comparePassword(password, admin.passwordHash))) {
       return res.status(401).json({ error: "Invalid Admin Credentials." });
     }
+
+    // Transparently upgrade legacy plaintext password to bcrypt hash
+    if (admin.passwordHash && !admin.passwordHash.startsWith('$2a$') && !admin.passwordHash.startsWith('$2b$')) {
+      const upgradedHash = await hashPassword(password);
+      await updateItemById('admins', 'id', admin.id, { passwordHash: upgradedHash });
+      admin.passwordHash = upgradedHash;
+    }
+
     const { passwordHash, ...adminData } = admin;
     return res.json({ success: true, token: `mock-admin-token-${admin.id}`, user: adminData });
   } else {
     const users = getCollection('users');
-    const user = users.find(u => u.email.toLowerCase() === email.toLowerCase() && u.passwordHash === password);
-    if (!user) {
+    const user = users.find(u => u.email && u.email.toLowerCase() === normalizedEmail);
+    if (!user || !(await comparePassword(password, user.passwordHash))) {
       return res.status(401).json({ error: "Invalid email or password." });
     }
+
+    // Transparently upgrade legacy plaintext password to bcrypt hash
+    if (user.passwordHash && !user.passwordHash.startsWith('$2a$') && !user.passwordHash.startsWith('$2b$')) {
+      const upgradedHash = await hashPassword(password);
+      await updateItemById('users', 'id', user.id, { passwordHash: upgradedHash });
+      user.passwordHash = upgradedHash;
+    }
+
     const { passwordHash, ...userData } = user;
     return res.json({ success: true, token: `mock-user-token-${user.id}`, user: userData });
   }
@@ -120,7 +160,7 @@ app.get('/api/bookings', (req, res) => {
   let bookings = getCollection('bookings');
 
   if (bookingId) {
-    bookings = bookings.filter(b => b.bookingId.toLowerCase() === bookingId.toLowerCase());
+    bookings = bookings.filter(b => b.bookingId && b.bookingId.toLowerCase() === bookingId.toLowerCase());
   } else if (userId) {
     bookings = bookings.filter(b => b.userId === userId);
   }
@@ -136,7 +176,7 @@ app.get('/api/bookings/:id', (req, res) => {
   res.json(booking);
 });
 
-app.post('/api/bookings', (req, res) => {
+app.post('/api/bookings', async (req, res) => {
   const data = req.body;
   if (!data.customerName || !data.phone || !data.brand || !data.model || !data.category) {
     return res.status(400).json({ error: "Missing required booking details." });
@@ -173,7 +213,7 @@ app.post('/api/bookings', (req, res) => {
     paymentStatus: "Pending"
   };
 
-  addItem('bookings', newBooking);
+  await addItem('bookings', newBooking);
 
   // Generate confirmation notification & SMS preview
   const newNotif = {
@@ -186,13 +226,13 @@ app.post('/api/bookings', (req, res) => {
     smsPreview: `[FixMobile Notification] Booking ${newBooking.bookingId} confirmed for ${newBooking.brand} ${newBooking.model}. Slot: ${newBooking.date} ${newBooking.timeSlot}. Est: ₹${newBooking.totalCost}. Track live at fixmobile.com/track`,
     read: false
   };
-  addItem('notifications', newNotif);
+  await addItem('notifications', newNotif);
 
   res.json({ success: true, booking: newBooking, notification: newNotif });
 });
 
 // Admin updates booking (status, assigned technician, notes, extra cost request)
-app.patch('/api/bookings/:id', (req, res) => {
+app.patch('/api/bookings/:id', async (req, res) => {
   const { status, assignedTechId, techName, diagnosticNotes, additionalCost, paymentStatus } = req.body;
   const bookingId = req.params.id;
 
@@ -218,7 +258,7 @@ app.patch('/api/bookings/:id', (req, res) => {
     };
 
     // Create notification
-    addItem('notifications', {
+    await addItem('notifications', {
       id: `notif-${Date.now()}`,
       userId: existing.userId,
       bookingId: existing.bookingId,
@@ -230,12 +270,12 @@ app.patch('/api/bookings/:id', (req, res) => {
     });
   }
 
-  const updatedBooking = updateItemById('bookings', 'bookingId', bookingId, updates);
+  const updatedBooking = await updateItemById('bookings', 'bookingId', bookingId, updates);
   res.json({ success: true, booking: updatedBooking });
 });
 
 // Customer responds to extra cost request (Approve or Reject)
-app.post('/api/bookings/:id/extra-cost/respond', (req, res) => {
+app.post('/api/bookings/:id/extra-cost/respond', async (req, res) => {
   const { action } = req.body; // 'approve' or 'reject'
   const bookingId = req.params.id;
 
@@ -248,13 +288,13 @@ app.post('/api/bookings/:id/extra-cost/respond', (req, res) => {
   if (action === 'approve') {
     addReq.status = 'Approved';
     const newFinal = Number(booking.totalCost) + Number(addReq.amount);
-    updateItemById('bookings', 'bookingId', bookingId, {
+    await updateItemById('bookings', 'bookingId', bookingId, {
       additionalCostRequest: addReq,
       finalCost: newFinal
     });
   } else {
     addReq.status = 'Rejected';
-    updateItemById('bookings', 'bookingId', bookingId, {
+    await updateItemById('bookings', 'bookingId', bookingId, {
       additionalCostRequest: addReq
     });
   }
@@ -274,7 +314,7 @@ app.get('/api/queries', (req, res) => {
   res.json(queries);
 });
 
-app.post('/api/queries', (req, res) => {
+app.post('/api/queries', async (req, res) => {
   const { userId, customerName, phone, category, subject, message } = req.body;
   if (!subject || !message) {
     return res.status(400).json({ error: "Subject and message are required." });
@@ -293,18 +333,18 @@ app.post('/api/queries', (req, res) => {
     createdAt: new Date().toISOString()
   };
 
-  addItem('queries', newQuery);
+  await addItem('queries', newQuery);
   res.json({ success: true, query: newQuery });
 });
 
-app.patch('/api/queries/:id/reply', (req, res) => {
+app.patch('/api/queries/:id/reply', async (req, res) => {
   const { response, status } = req.body;
   const queryId = req.params.id;
 
   const existing = getItemById('queries', 'queryId', queryId);
   if (!existing) return res.status(404).json({ error: "Query not found." });
 
-  const updated = updateItemById('queries', 'queryId', queryId, {
+  const updated = await updateItemById('queries', 'queryId', queryId, {
     response: response || existing.response,
     status: status || "Replied",
     repliedAt: new Date().toISOString()
@@ -321,7 +361,7 @@ app.get('/api/technicians', (req, res) => {
   res.json(techs);
 });
 
-app.post('/api/technicians', (req, res) => {
+app.post('/api/technicians', async (req, res) => {
   const { name, phone, spec, status } = req.body;
   if (!name || !phone) return res.status(400).json({ error: "Name and phone required." });
 
@@ -335,17 +375,17 @@ app.post('/api/technicians', (req, res) => {
     avatar: "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&q=80&w=120"
   };
 
-  addItem('technicians', newTech);
+  await addItem('technicians', newTech);
   res.json({ success: true, technician: newTech });
 });
 
-app.patch('/api/technicians/:id', (req, res) => {
-  const updated = updateItemById('technicians', 'id', req.params.id, req.body);
+app.patch('/api/technicians/:id', async (req, res) => {
+  const updated = await updateItemById('technicians', 'id', req.params.id, req.body);
   res.json({ success: true, technician: updated });
 });
 
-app.delete('/api/technicians/:id', (req, res) => {
-  deleteItem('technicians', 'id', req.params.id);
+app.delete('/api/technicians/:id', async (req, res) => {
+  await deleteItem('technicians', 'id', req.params.id);
   res.json({ success: true });
 });
 
@@ -357,7 +397,7 @@ app.get('/api/inventory', (req, res) => {
   res.json(inv);
 });
 
-app.post('/api/inventory', (req, res) => {
+app.post('/api/inventory', async (req, res) => {
   const { name, brand, model, quantity, reorderLevel, price, supplier } = req.body;
   if (!name || !quantity || !price) return res.status(400).json({ error: "Part name, quantity, and price required." });
 
@@ -376,11 +416,11 @@ app.post('/api/inventory', (req, res) => {
     status: qtyNum <= reorderNum ? "Low Stock" : "In Stock"
   };
 
-  addItem('inventory', newInv);
+  await addItem('inventory', newInv);
   res.json({ success: true, item: newInv });
 });
 
-app.patch('/api/inventory/:id', (req, res) => {
+app.patch('/api/inventory/:id', async (req, res) => {
   const existing = getItemById('inventory', 'id', req.params.id);
   if (!existing) return res.status(404).json({ error: "Inventory item not found." });
 
@@ -394,7 +434,7 @@ app.patch('/api/inventory/:id', (req, res) => {
     status: qty <= reorder ? "Low Stock" : "In Stock"
   };
 
-  const updated = updateItemById('inventory', 'id', req.params.id, updates);
+  const updated = await updateItemById('inventory', 'id', req.params.id, updates);
   res.json({ success: true, item: updated });
 });
 
@@ -406,7 +446,7 @@ app.get('/api/customers', (req, res) => {
   const bookings = getCollection('bookings');
 
   const customerList = users.map(u => {
-    const userBookings = bookings.filter(b => b.userId === u.id || b.email === u.email);
+    const userBookings = bookings.filter(b => b.userId === u.id || (u.email && b.email === u.email));
     const totalSpent = userBookings.reduce((sum, b) => sum + (b.paymentStatus === 'Paid' ? (b.finalCost || b.totalCost) : 0), 0);
     const activeRepair = userBookings.find(b => !['Delivered', 'Cancelled'].includes(b.status));
 
@@ -538,6 +578,21 @@ app.get('/api/analytics', (req, res) => {
   });
 });
 
-app.listen(PORT, () => {
-  console.log(`⚡ FixMobile Server running on http://localhost:${PORT}`);
-});
+// -------------------------------------------------------------
+// SERVER INITIALIZATION
+// -------------------------------------------------------------
+const startServer = async () => {
+  try {
+    await initDB(initialSeedData);
+    await ensureSeed();
+  } catch (err) {
+    console.error('Server DB initialization error:', err);
+  }
+
+  app.listen(PORT, () => {
+    console.log(`⚡ FixMobile Server running on http://localhost:${PORT}`);
+    console.log(`📡 Storage Mode: ${isMongoActive() ? 'MongoDB Atlas (Persistent Cloud)' : 'Local JSON Store'}`);
+  });
+};
+
+startServer();

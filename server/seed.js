@@ -1,4 +1,4 @@
-import { writeDB } from './db.js';
+import { initDB, writeDB, closeDB } from './db.js';
 
 export const initialSeedData = {
   shopDetails: {
@@ -232,11 +232,14 @@ export const initialSeedData = {
   ]
 };
 
-export function seed() {
-  writeDB(initialSeedData);
+export async function seed() {
+  await initDB(initialSeedData);
+  await writeDB(initialSeedData);
   console.log("Database initialized with FixMobile seed data.");
+  await closeDB();
 }
 
 if (process.argv[1] && process.argv[1].endsWith('seed.js')) {
   seed();
 }
+
