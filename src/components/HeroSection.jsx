@@ -1,4 +1,4 @@
-import React from 'react';
+git statusimport React from 'react';
 import { Smartphone, Search, Calculator, Sparkles, ShieldCheck, Clock, MapPin, CheckCircle2, ArrowRight } from 'lucide-react';
 
 export default function HeroSection({ onNavigate, onOpenAIDiagnosis }) {
@@ -10,7 +10,7 @@ export default function HeroSection({ onNavigate, onOpenAIDiagnosis }) {
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-center">
-          
+
           {/* Left Hero Column */}
           <div className="lg:col-span-7 space-y-6 text-center lg:text-left">
             <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-blue-900/40 border border-blue-500/30 text-cyanAccent text-xs font-semibold tracking-wide">
@@ -69,7 +69,7 @@ export default function HeroSection({ onNavigate, onOpenAIDiagnosis }) {
           {/* Right Hero Column: Animated Phone Repair Visual */}
           <div className="lg:col-span-5 relative flex justify-center">
             <div className="relative w-72 sm:w-80 h-[480px] bg-slate-950 rounded-[44px] p-3 border-4 border-slate-800 shadow-2xl shadow-blue-900/40 glow-blue animate-float">
-              
+
               {/* Phone Speaker Notch */}
               <div className="absolute top-5 left-1/2 -translate-x-1/2 w-28 h-4 bg-slate-900 rounded-full z-20 flex items-center justify-center gap-2">
                 <div className="w-2.5 h-2.5 rounded-full bg-blue-600 animate-pulse"></div>
@@ -78,7 +78,7 @@ export default function HeroSection({ onNavigate, onOpenAIDiagnosis }) {
 
               {/* Display Screen */}
               <div className="w-full h-full bg-navy-900 rounded-[36px] overflow-hidden relative flex flex-col justify-between p-5 border border-white/10">
-                
+
                 {/* Visual Repair Graphic Overlay */}
                 <div className="pt-8 space-y-4">
                   <div className="flex items-center justify-between text-xs text-slate-400">
@@ -94,7 +94,7 @@ export default function HeroSection({ onNavigate, onOpenAIDiagnosis }) {
                     <div className="absolute inset-x-0 h-1 bg-gradient-to-r from-transparent via-cyan-400 to-transparent animate-scan shadow-[0_0_15px_#38BDF8]"></div>
 
                     <Smartphone className="w-16 h-16 text-cyanAccent relative z-10 animate-pulse" />
-                    
+
                     <div className="mt-3 relative z-10 text-center">
                       <p className="text-xs font-bold text-white">Shattered Display Repair</p>
                       <p className="text-[10px] text-cyan-300 font-mono">Calibrating OLED Panel...</p>
@@ -127,7 +127,7 @@ export default function HeroSection({ onNavigate, onOpenAIDiagnosis }) {
         {/* Quick Action Navigation Bar */}
         <div className="mt-16 bg-navy-800/90 backdrop-blur-md rounded-2xl p-4 sm:p-6 border border-white/10 shadow-2xl">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
-            
+
             <button
               onClick={() => onNavigate('booking')}
               className="flex items-center gap-3 p-3.5 rounded-xl bg-navy-900/80 hover:bg-blue-600/20 border border-white/5 hover:border-blue-500/40 transition-all text-left group"
