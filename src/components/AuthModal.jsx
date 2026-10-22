@@ -186,11 +186,6 @@ export default function AuthModal({ isOpen, onClose, role = 'user', onAuthSucces
             </div>
           )}
 
-          {role === 'admin' && (
-            <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800">
-              💡 Demo Admin Credentials pre-filled: <strong>admin@fixmobile.com</strong> / <strong>admin123</strong>
-            </div>
-          )}
 
           <button
             type="submit"
