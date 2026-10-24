@@ -12,7 +12,8 @@ import {
   deleteItem,
   hashPassword,
   comparePassword,
-  isMongoActive 
+  isMongoActive,
+  normalizeTimeSlot
 } from './db.js';
 import { initialSeedData } from './seed.js';
 
@@ -66,7 +67,8 @@ app.get('/api/services', (req, res) => {
 
 app.get('/api/time-slots', (req, res) => {
   const slots = getCollection('timeSlots');
-  res.json(slots.length ? slots : initialSeedData.timeSlots);
+  const validSlots = Array.isArray(slots) ? slots.map(normalizeTimeSlot).filter(Boolean) : [];
+  res.json(validSlots.length ? validSlots : initialSeedData.timeSlots);
 });
 
 app.get('/api/reviews', (req, res) => {
@@ -195,7 +197,7 @@ app.post('/api/bookings', async (req, res) => {
     problemDescription: data.problemDescription || "",
     photoUrl: data.photoUrl || "",
     date: data.date,
-    timeSlot: data.timeSlot,
+    timeSlot: typeof data.timeSlot === 'string' ? data.timeSlot.trim() : (normalizeTimeSlot(data.timeSlot) || ""),
     serviceMethod: data.serviceMethod || "Visit Repair Shop",
     address: data.address || "",
     partCost: Number(data.partCost || 0),

@@ -200,7 +200,7 @@ export default function UserDashboard({ user, onOpenInvoice, onOpenNotifications
                           </span>
                         </div>
                         <p className="text-slate-700 font-medium">{b.brand} {b.model} — {b.category}</p>
-                        <p className="text-slate-500 text-xs mt-0.5">Scheduled Date: {b.date} ({b.timeSlot}) • {b.serviceMethod}</p>
+                        <p className="text-slate-500 text-xs mt-0.5">Scheduled Date: {b.date} ({typeof b.timeSlot === 'string' ? b.timeSlot : (b.timeSlot?.slot || 'Standard Slot')}) • {b.serviceMethod}</p>
                       </div>
 
                       <div className="flex items-center gap-2">

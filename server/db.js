@@ -89,6 +89,26 @@ function stripMongoId(obj) {
   return rest;
 }
 
+// Normalize time slot values from string, document ({ slot: "..." }), or corrupted character-indexed objects
+export function normalizeTimeSlot(item) {
+  if (typeof item === 'string') return item.trim();
+  if (!item || typeof item !== 'object') return '';
+  if (item.slot && typeof item.slot === 'string') return item.slot.trim();
+  if (item.time && typeof item.time === 'string') return item.time.trim();
+  if (item.timeSlot && typeof item.timeSlot === 'string') return item.timeSlot.trim();
+  // If corrupted character-indexed object from string spreading: { "0": "1", "1": "0", ... }
+  const keys = Object.keys(item).filter(k => !isNaN(k)).sort((a, b) => Number(a) - Number(b));
+  if (keys.length > 0) {
+    return keys.map(k => item[k]).join('').trim();
+  }
+  return '';
+}
+
+export function formatTimeSlotForMongo(slot) {
+  const str = normalizeTimeSlot(slot);
+  return { slot: str };
+}
+
 // --- Database Initialization & Safe Migration ---
 export async function initDB(initialData = {}) {
   const mongoUri = process.env.MONGODB_URI;
@@ -119,6 +139,9 @@ export async function initDB(initialData = {}) {
           const itemsToMigrate = (sourceData[colName] && Array.isArray(sourceData[colName])) ? sourceData[colName] : [];
           if (itemsToMigrate.length > 0) {
             const cleanItems = itemsToMigrate.map(item => {
+              if (colName === 'timeSlots') {
+                return formatTimeSlotForMongo(item);
+              }
               const doc = { ...item };
               delete doc._id;
               return doc;
@@ -129,6 +152,32 @@ export async function initDB(initialData = {}) {
         } else {
           console.log(`ℹ️ [Preserved] MongoDB collection "${colName}" already contains ${count} items. Cloud data preserved.`);
         }
+      }
+
+      // Auto-heal / repair timeSlots collection in MongoDB Atlas if corrupted by prior spread-operator migration
+      try {
+        const timeSlotsCol = mongoDb.collection('timeSlots');
+        const rawTimeSlots = await timeSlotsCol.find({}).toArray();
+        const hasCorruptedDoc = rawTimeSlots.some(doc => {
+          return Object.keys(doc).some(k => !isNaN(k)) || (doc.slot === undefined && doc.timeSlot === undefined);
+        });
+
+        if (hasCorruptedDoc && rawTimeSlots.length > 0) {
+          console.log('🔄 Detected corrupted timeSlots format in MongoDB Atlas. Performing auto-repair...');
+          const repairedSlots = rawTimeSlots.map(normalizeTimeSlot).filter(Boolean);
+          const slotsToSave = repairedSlots.length > 0 ? repairedSlots : (initialData.timeSlots || [
+            "10:00 AM - 11:00 AM",
+            "11:00 AM - 12:00 PM",
+            "02:00 PM - 03:00 PM",
+            "04:00 PM - 05:00 PM",
+            "06:00 PM - 07:00 PM"
+          ]);
+          await timeSlotsCol.deleteMany({});
+          await timeSlotsCol.insertMany(slotsToSave.map(slot => ({ slot })));
+          console.log(`✅ Successfully auto-repaired ${slotsToSave.length} timeSlots in MongoDB Atlas.`);
+        }
+      } catch (repairErr) {
+        console.warn('⚠️ Warning during timeSlots auto-repair check:', repairErr.message);
       }
 
       // 2. Safe migration for shopDetails
@@ -149,7 +198,18 @@ export async function initDB(initialData = {}) {
       // 3. Populate memoryStore with the latest data from MongoDB Atlas
       for (const colName of KNOWN_COLLECTIONS) {
         const docs = await mongoDb.collection(colName).find({}, { projection: { _id: 0 } }).toArray();
-        memoryStore[colName] = docs;
+        if (colName === 'timeSlots') {
+          const stringSlots = docs.map(normalizeTimeSlot).filter(Boolean);
+          memoryStore[colName] = stringSlots.length > 0 ? stringSlots : (initialData.timeSlots || [
+            "10:00 AM - 11:00 AM",
+            "11:00 AM - 12:00 PM",
+            "02:00 PM - 03:00 PM",
+            "04:00 PM - 05:00 PM",
+            "06:00 PM - 07:00 PM"
+          ]);
+        } else {
+          memoryStore[colName] = docs;
+        }
       }
 
       const latestShop = await shopCol.findOne({}, { projection: { _id: 0 } });
@@ -212,26 +272,47 @@ export async function writeDB(data) {
 }
 
 export function getCollection(name) {
-  return memoryStore[name] || [];
+  const data = memoryStore[name] || [];
+  if (name === 'timeSlots') {
+    return data.map(normalizeTimeSlot).filter(Boolean);
+  }
+  return data;
 }
 
 export async function setCollection(name, items) {
-  memoryStore[name] = items;
+  if (name === 'timeSlots') {
+    const stringSlots = (Array.isArray(items) ? items : []).map(normalizeTimeSlot).filter(Boolean);
+    memoryStore[name] = stringSlots;
 
-  if (isConnectedToMongo && mongoDb) {
-    try {
-      const col = mongoDb.collection(name);
-      await col.deleteMany({});
-      if (items.length > 0) {
-        const cleanItems = items.map(it => {
-          const doc = { ...it };
-          delete doc._id;
-          return doc;
-        });
-        await col.insertMany(cleanItems);
+    if (isConnectedToMongo && mongoDb) {
+      try {
+        const col = mongoDb.collection(name);
+        await col.deleteMany({});
+        if (stringSlots.length > 0) {
+          await col.insertMany(stringSlots.map(s => ({ slot: s })));
+        }
+      } catch (err) {
+        console.error(`Error setting collection "${name}" in MongoDB:`, err.message);
       }
-    } catch (err) {
-      console.error(`Error setting collection "${name}" in MongoDB:`, err.message);
+    }
+  } else {
+    memoryStore[name] = items;
+
+    if (isConnectedToMongo && mongoDb) {
+      try {
+        const col = mongoDb.collection(name);
+        await col.deleteMany({});
+        if (items.length > 0) {
+          const cleanItems = items.map(it => {
+            const doc = { ...it };
+            delete doc._id;
+            return doc;
+          });
+          await col.insertMany(cleanItems);
+        }
+      } catch (err) {
+        console.error(`Error setting collection "${name}" in MongoDB:`, err.message);
+      }
     }
   }
 

@@ -35,12 +35,33 @@ export default function BookingWizard({ user, onOpenAuth, onBookingComplete, pre
           api.getTimeSlots(),
           api.getBookings()
         ]);
-        setBrands(bData);
-        setServices(sData);
-        setTimeSlots(slotData);
-        setExistingBookings(bookData);
+        setBrands(Array.isArray(bData) ? bData : []);
+        setServices(Array.isArray(sData) ? sData : []);
+        
+        // Normalize time slots ensuring every item is a clean string (even if API returns objects from MongoDB)
+        const normalizedSlots = (Array.isArray(slotData) ? slotData : []).map(s => {
+          if (typeof s === 'string') return s.trim();
+          if (s && typeof s === 'object') {
+            if (s.slot) return String(s.slot).trim();
+            if (s.time) return String(s.time).trim();
+            if (s.timeSlot) return String(s.timeSlot).trim();
+            const keys = Object.keys(s).filter(k => !isNaN(k)).sort((a, b) => Number(a) - Number(b));
+            if (keys.length > 0) return keys.map(k => s[k]).join('').trim();
+          }
+          return String(s || '').trim();
+        }).filter(Boolean);
 
-        if (bData.length > 0) {
+        const defaultSlots = [
+          "10:00 AM - 11:00 AM",
+          "11:00 AM - 12:00 PM",
+          "02:00 PM - 03:00 PM",
+          "04:00 PM - 05:00 PM",
+          "06:00 PM - 07:00 PM"
+        ];
+        setTimeSlots(normalizedSlots.length > 0 ? normalizedSlots : defaultSlots);
+        setExistingBookings(Array.isArray(bookData) ? bookData : []);
+
+        if (Array.isArray(bData) && bData.length > 0) {
           setSelectedBrand(bData[0]);
           setSelectedModel(bData[0].models[0]);
         }
@@ -94,7 +115,11 @@ export default function BookingWizard({ user, onOpenAuth, onBookingComplete, pre
 
   // Slot availability helper
   const isSlotBooked = (slot) => {
-    return existingBookings.some(b => b.date === selectedDate && b.timeSlot === slot && b.status !== 'Cancelled');
+    const slotStr = typeof slot === 'string' ? slot : (slot?.slot || String(slot || ''));
+    return Array.isArray(existingBookings) && existingBookings.some(b => {
+      const bSlot = typeof b.timeSlot === 'string' ? b.timeSlot : (b.timeSlot?.slot || String(b.timeSlot || ''));
+      return b.date === selectedDate && bSlot === slotStr && b.status !== 'Cancelled';
+    });
   };
 
   const handleNextStep = () => {
@@ -142,7 +167,7 @@ export default function BookingWizard({ user, onOpenAuth, onBookingComplete, pre
         problemDescription: problemDesc,
         photoUrl,
         date: selectedDate,
-        timeSlot: selectedSlot,
+        timeSlot: typeof selectedSlot === 'string' ? selectedSlot : (selectedSlot?.slot || String(selectedSlot || '')),
         serviceMethod,
         address,
         partCost,
@@ -361,25 +386,26 @@ export default function BookingWizard({ user, onOpenAuth, onBookingComplete, pre
 
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 {timeSlots.map((slot) => {
-                  const booked = isSlotBooked(slot);
+                  const slotStr = typeof slot === 'string' ? slot : (slot?.slot || String(slot || ''));
+                  const booked = isSlotBooked(slotStr);
                   return (
                     <button
-                      key={slot}
+                      key={slotStr}
                       type="button"
                       disabled={booked}
-                      onClick={() => setSelectedSlot(slot)}
+                      onClick={() => setSelectedSlot(slotStr)}
                       className={`p-3.5 rounded-xl border text-sm font-medium transition-all flex items-center justify-between ${
                         booked 
                           ? 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed line-through'
-                          : selectedSlot === slot
+                          : selectedSlot === slotStr
                             ? 'bg-brand-600 border-brand-600 text-white font-semibold shadow-sm'
                             : 'border-slate-200 hover:border-brand-300 text-slate-700 hover:bg-brand-50/50'
                       }`}
                     >
-                      <span>{slot}</span>
+                      <span>{slotStr}</span>
                       {booked ? (
                         <span className="text-[10px] uppercase font-bold text-rose-500">Booked</span>
-                      ) : selectedSlot === slot ? (
+                      ) : selectedSlot === slotStr ? (
                         <Check className="w-4 h-4 text-white" />
                       ) : (
                         <span className="text-[10px] uppercase font-bold text-emerald-600">Available</span>

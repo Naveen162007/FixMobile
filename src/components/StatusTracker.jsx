@@ -251,7 +251,7 @@ export default function StatusTracker({ initialBookingId = '', onOpenInvoice }) 
               </h5>
               <p><strong>Name:</strong> {booking.techName || 'Unassigned'}</p>
               <p><strong>Service Mode:</strong> {booking.serviceMethod}</p>
-              <p><strong>Slot:</strong> {booking.date} ({booking.timeSlot})</p>
+              <p><strong>Slot:</strong> {booking.date} ({typeof booking.timeSlot === 'string' ? booking.timeSlot : (booking.timeSlot?.slot || 'Standard Slot')})</p>
             </div>
 
             <div className="space-y-2 bg-slate-50 p-4 rounded-2xl border border-slate-100">
